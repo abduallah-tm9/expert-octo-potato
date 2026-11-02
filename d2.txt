@@ -1,0 +1,179 @@
+
+/* =====================  الإدخال  ===================== */
+const keys = new Set(), PV = {}, TP = new Map(), TH = {}; let touchSeen = false;
+const S_touch = () => SAVE.set.touch === 1 || (SAVE.set.touch === 0 && touchSeen);
+const TB = [{ id: 'left', x: 110, y: 640, r: 62, t: '◀' }, { id: 'right', x: 250, y: 640, r: 62, t: '▶' }, { id: 'gas', x: 1185, y: 640, r: 62, t: 'بنزين' }, { id: 'brake', x: 1055, y: 655, r: 46, t: 'فرامل' },
+  { id: 'jump', x: 1185, y: 515, r: 50, t: 'قفز' }, { id: 'boost', x: 1055, y: 530, r: 50, t: 'وقود' }, { id: 'slide', x: 935, y: 655, r: 38, t: 'انزلاق' }, { id: 'cam', x: 1230, y: 380, r: 32, t: 'كاميرا' }, { id: 'pause', x: 1238, y: 40, r: 28, t: 'II' }];
+function pads() { return (navigator.getGamepads ? Array.from(navigator.getGamepads()) : []).filter((p) => p && p.connected); }
+const padState = (p) => ({ b: (i) => !!(p.buttons[i] && p.buttons[i].pressed), v: (i) => (p.buttons[i] ? p.buttons[i].value : 0), ax: (i) => p.axes[i] || 0 });
+const NAVK = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'ok', Space: 'ok', Escape: 'back' };
+addEventListener('keydown', (e) => {
+  ensureAudio(); if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault(); if (keys.has(e.code)) return; keys.add(e.code);
+  if (GM.mode === 'play') { if (e.code === 'Escape' || e.code === 'KeyP') nav('pause'); else if (e.code === 'KeyB') GM.camOn = !GM.camOn; else if (e.code === 'KeyR' && GM.cfg.free) resetBallFree(); }
+  else if (NAVK[e.code]) nav(NAVK[e.code]);
+});
+addEventListener('keyup', (e) => keys.delete(e.code));
+addEventListener('blur', () => { keys.clear(); if (GM.mode === 'play') nav('pause'); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && GM.mode === 'play') nav('pause'); });
+const lpos = (e) => ({ x: (e.clientX - ui.ox) / ui.s, y: (e.clientY - ui.oy) / ui.s });
+uic.addEventListener('pointerdown', (e) => {
+  e.preventDefault(); ensureAudio(); const p = lpos(e);
+  if (e.pointerType !== 'mouse') { touchSeen = true; try { uic.setPointerCapture(e.pointerId); } catch (x) {} }
+  if (GM.mode === 'play') {
+    if (!S_touch()) return; const b = TB.find((q) => Math.hypot(p.x - q.x, p.y - q.y) < q.r + 10); if (!b) return;
+    if (b.id === 'pause') { nav('pause'); return; } if (b.id === 'cam') { GM.camOn = !GM.camOn; return; } TP.set(e.pointerId, b.id); TH[b.id] = true;
+  } else tap(p.x, p.y);
+});
+uic.addEventListener('pointermove', (e) => { if (!TP.has(e.pointerId)) return; const p = lpos(e), b = TB.find((q) => Math.hypot(p.x - q.x, p.y - q.y) < q.r + 20), old = TP.get(e.pointerId); if (!b || b.id !== old) { TH[old] = false; TP.delete(e.pointerId); if (b && b.id !== 'pause' && b.id !== 'cam') { TP.set(e.pointerId, b.id); TH[b.id] = true; } } });
+['pointerup', 'pointercancel'].forEach((n) => uic.addEventListener(n, (e) => { const id = TP.get(e.pointerId); if (id) TH[id] = false; TP.delete(e.pointerId); }));
+uic.addEventListener('contextmenu', (e) => e.preventDefault());
+function collectInput() {
+  const c = GM.player; if (!c) return; const I = c.in; let thr = 0, steer = 0, fb = 0, roll = 0, jump = false, boost = false, slide = false;
+  const p = pads()[0], dz = (v) => Math.abs(v) < .14 ? 0 : sgn(v) * (Math.abs(v) - .14) / .86;
+  if (p) {
+    const s = padState(p), pv = PV[p.index] || {}, cur = {};
+    steer = dz(s.ax(0)); fb = -dz(s.ax(1)); thr = Math.max(0, s.v(7) - .04) - Math.max(0, s.v(6) - .04); jump = s.b(0); boost = s.b(1); slide = s.b(2); roll = (s.b(5) ? 1 : 0) - (s.b(4) ? 1 : 0);
+    cur.cam = s.b(3); cur.pause = s.b(9); cur.reset = s.b(8) || s.b(11);
+    if (cur.cam && !pv.cam) GM.camOn = !GM.camOn; if (cur.pause && !pv.pause) nav('pause'); if (cur.reset && !pv.reset && GM.cfg.free) resetBallFree(); PV[p.index] = cur;
+  }
+  const k = (c1, c2) => keys.has(c1) || keys.has(c2);
+  const ku = k('KeyW', 'ArrowUp'), kd = k('KeyS', 'ArrowDown'), kl = k('KeyA', 'ArrowLeft'), kr = k('KeyD', 'ArrowRight');
+  thr += (ku ? 1 : 0) - (kd ? 1 : 0); fb += (ku ? 1 : 0) - (kd ? 1 : 0); steer += (kr ? 1 : 0) - (kl ? 1 : 0); roll += (keys.has('KeyE') ? 1 : 0) - (keys.has('KeyQ') ? 1 : 0);
+  jump = jump || keys.has('Space'); boost = boost || k('ShiftLeft', 'ShiftRight'); slide = slide || k('ControlLeft', 'KeyC');
+  if (S_touch()) { steer += (TH.right ? 1 : 0) - (TH.left ? 1 : 0); thr += (TH.gas ? 1 : 0) - (TH.brake ? 1 : 0); fb += (TH.gas ? 1 : 0) - (TH.brake ? 1 : 0); jump = jump || !!TH.jump; boost = boost || !!TH.boost; slide = slide || !!TH.slide; }
+  I.thr = clamp(thr, -1, 1); I.steer = clamp(sgn(steer) * Math.pow(Math.abs(steer), 1.15) * SAVE.set.steer, -1, 1); I.fb = clamp(fb, -1, 1); I.roll = clamp(roll, -1, 1); I.jump = jump; I.boost = boost; I.slide = slide;
+}
+function drawTouch() {
+  TB.forEach((b) => { const on = TH[b.id]; ctx.globalAlpha = on ? .55 : .26; ctx.fillStyle = b.id === 'boost' ? '#ff8a2b' : b.id === 'jump' ? '#2d7dff' : b.id === 'gas' ? '#3ad98a' : '#fff'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill(); ctx.globalAlpha = .95; T(b.t, b.x, b.y, b.r > 55 ? 22 : 16, '#fff'); ctx.globalAlpha = 1; });
+}
+
+/* =====================  القوائم  ===================== */
+const MAIN = ['مباراة سريعة', 'تدريب حر', 'الجراج', 'الإعدادات', 'دليل التحكم', 'التحميل بدون إنترنت'];
+const SIZES = ['1 ضد 1', '2 ضد 2', '3 ضد 3'], MINS = [3, 5, 10], DIFFS = ['سهل', 'متوسط', 'صعب'];
+const FPS_CAPS = [30, 45, 60, 90, 120, 0], FPS_NAMES = ['30', '45', '60', '90', '120', 'بلا حد'], TCH_NAMES = ['تلقائي', 'مفعّل', 'متوقف'];
+const SETROWS = ['كاميرا الكرة افتراضياً', 'زاوية الرؤية', 'بُعد الكاميرا', 'ارتفاع الكاميرا', 'جودة الرسم', 'حد الفريمات', 'عدّاد FPS', 'الصوت', 'الاهتزاز', 'أزرار اللمس', 'رجوع'];
+const GROWS = ['السيارة', 'لون السيارة', 'العجلات', 'لون الدفع', 'رجوع'], PAUSE = ['متابعة', 'الإعدادات', 'دليل التحكم', 'الخروج إلى القائمة'];
+const MN = { sel: 0, setup: 0, garage: 0, set: 0, pause: 0, end: 0, off: 0 }, OFF = { status: '' }; let deferredInstall = null, garageCar = null, demoCars = [], toastO = null;
+const toast = (t) => { toastO = { t, ttl: 3.2 }; };
+addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstall = e; });
+function checkOffline() {
+  if (location.protocol === 'file:') { OFF.status = 'تعمل من ملف على جهازك: لا تحتاج إنترنت أبداً ✓'; return; }
+  if (window.caches) caches.keys().then((k) => { OFF.status = k.some((n) => n.indexOf('tball3d-') === 0) ? 'محفوظة على جهازك: تعمل بدون إنترنت ✓' : 'افتحها مرة وأنت متصل بالإنترنت ليتم حفظها'; }).catch(() => { OFF.status = 'افتحها مرة وأنت متصل بالإنترنت ليتم حفظها'; }); else OFF.status = 'استخدم تنزيل الملف لتعمل بدون إنترنت';
+}
+async function downloadSelf() {
+  try { let txt; try { const r = await fetch(location.href, { cache: 'force-cache' }); txt = await r.text(); } catch (e) { txt = '<!doctype html>\n' + document.documentElement.outerHTML; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/html' })); a.download = 'turbo-ball-3d.html'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); toast('بدأ تنزيل ملف اللعبة'); } catch (e) { toast('تعذّر التنزيل من هذه الصفحة'); }
+}
+function offlineAct(i) { if (i === 0) { if (deferredInstall) { deferredInstall.prompt(); deferredInstall = null; } else toast('أندرويد: ⋮ ثم تثبيت التطبيق — آيفون: مشاركة ثم إضافة إلى الشاشة الرئيسية'); } else if (i === 1) downloadSelf(); else GM.mode = 'menu'; }
+function setC(r, d) {
+  const s = SAVE.set;
+  if (r === 0) s.ballCam = !s.ballCam; else if (r === 1) s.fov = clamp(s.fov + d * 5, 55, 110); else if (r === 2) s.camDist = clamp(Math.round((s.camDist + d * .5) * 10) / 10, 4, 12); else if (r === 3) s.camH = clamp(Math.round((s.camH + d * .3) * 10) / 10, 1, 6);
+  else if (r === 4) { s.q = (s.q + d + 4) % 4; resize(); } else if (r === 5) s.fps = (s.fps + d + 6) % 6; else if (r === 6) s.showFps = !s.showFps; else if (r === 7) { s.vol = clamp(Math.round((s.vol + d * .1) * 10) / 10, 0, 1); if (MG) MG.gain.value = s.vol; }
+  else if (r === 8) s.vib = !s.vib; else if (r === 9) s.touch = (s.touch + d + 3) % 3; persist();
+}
+function syncGarage() { garageCar = mkCar(0, SAVE.car, false, SAVE.color); garageCar.color = PAL[SAVE.color]; garageCar.rim = WHEEL_RIM[SAVE.wheel]; garageCar.flame = FLAME[SAVE.flame]; }
+function gChange(r, d) {
+  if (r === 0) SAVE.car = (SAVE.car + d + BODIES.length) % BODIES.length; else if (r === 1) SAVE.color = (SAVE.color + d + PAL.length) % PAL.length; else if (r === 2) SAVE.wheel = (SAVE.wheel + d + 3) % 3; else if (r === 3) SAVE.flame = (SAVE.flame + d + 4) % 4; persist(); syncGarage();
+}
+function nav(a) {
+  ensureAudio(); const m = GM.mode;
+  if (m === 'menu') {
+    if (a === 'up') MN.sel = (MN.sel + MAIN.length - 1) % MAIN.length; else if (a === 'down') MN.sel = (MN.sel + 1) % MAIN.length;
+    else if (a === 'ok') { if (MN.sel === 0) { MN.setup = 0; GM.mode = 'setup'; } else if (MN.sel === 1) startMatch(true); else if (MN.sel === 2) { syncGarage(); MN.garage = 0; GM.mode = 'garage'; } else if (MN.sel === 3) { GM.prev = 'menu'; MN.set = 0; GM.mode = 'settings'; } else if (MN.sel === 4) { GM.prev = 'menu'; GM.mode = 'help'; } else { checkOffline(); MN.off = 0; GM.mode = 'offline'; } }
+  } else if (m === 'setup') {
+    if (a === 'up') MN.setup = (MN.setup + 3) % 4; else if (a === 'down') MN.setup = (MN.setup + 1) % 4; else if (a === 'left' || a === 'right') { const d = a === 'right' ? 1 : -1; if (MN.setup === 0) GM.cfg.size = ((GM.cfg.size - 1 + d + 3) % 3) + 1; else if (MN.setup === 1) GM.cfg.mins = MINS[(MINS.indexOf(GM.cfg.mins) + d + 3) % 3]; else if (MN.setup === 2) GM.cfg.diff = (GM.cfg.diff + d + 3) % 3; }
+    else if (a === 'ok') { if (MN.setup === 3) startMatch(false); else nav('right'); } else if (a === 'back') GM.mode = 'menu';
+  } else if (m === 'garage') {
+    if (a === 'up') MN.garage = (MN.garage + 4) % 5; else if (a === 'down') MN.garage = (MN.garage + 1) % 5; else if (a === 'left') gChange(MN.garage, -1); else if (a === 'right') gChange(MN.garage, 1); else if (a === 'ok') { if (MN.garage === 4) GM.mode = 'menu'; else gChange(MN.garage, 1); } else if (a === 'back') GM.mode = 'menu';
+  } else if (m === 'settings') {
+    const n = SETROWS.length; if (a === 'up') MN.set = (MN.set + n - 1) % n; else if (a === 'down') MN.set = (MN.set + 1) % n; else if (a === 'left') setC(MN.set, -1); else if (a === 'right') setC(MN.set, 1); else if (a === 'ok') { if (MN.set === n - 1) GM.mode = GM.prev; else setC(MN.set, 1); } else if (a === 'back') GM.mode = GM.prev;
+  } else if (m === 'help') { if (a === 'ok' || a === 'back') GM.mode = GM.prev; }
+  else if (m === 'offline') { if (a === 'up') MN.off = (MN.off + 2) % 3; else if (a === 'down') MN.off = (MN.off + 1) % 3; else if (a === 'ok') offlineAct(MN.off); else if (a === 'back') GM.mode = 'menu'; }
+  else if (m === 'pause') { if (a === 'up') MN.pause = (MN.pause + 3) % 4; else if (a === 'down') MN.pause = (MN.pause + 1) % 4; else if (a === 'back' || a === 'pause') GM.mode = 'play'; else if (a === 'ok') { if (MN.pause === 0) GM.mode = 'play'; else if (MN.pause === 1) { GM.prev = 'pause'; MN.set = 0; GM.mode = 'settings'; } else if (MN.pause === 2) { GM.prev = 'pause'; GM.mode = 'help'; } else GM.mode = 'menu'; } }
+  else if (m === 'end') { if (a === 'ok') startMatch(false); else if (a === 'back') GM.mode = 'menu'; }
+  else if (m === 'play' && a === 'pause') { GM.mode = 'pause'; MN.pause = 0; }
+}
+function pollNav() {
+  pads().forEach((p) => {
+    const s = padState(p), x = s.ax(0), y = s.ax(1), pv = PV['n' + p.index] || {}, cur = { up: s.b(12) || y < -.6, down: s.b(13) || y > .6, left: s.b(14) || x < -.6, right: s.b(15) || x > .6, ok: s.b(0), back: s.b(1), pause: s.b(9) };
+    for (const k in cur) if (cur[k] && !pv[k]) nav(k); PV['n' + p.index] = cur;
+  });
+}
+function tap(x, y) {
+  const m = GM.mode, inR = (a, b, c, d) => x >= a && x <= a + c && y >= b && y <= b + d;
+  if (m === 'menu') { for (let i = 0; i < MAIN.length; i++) if (inR(380, 240 + i * 66, 520, 56)) { MN.sel = i; nav('ok'); return; } }
+  else if (m === 'setup') { for (let i = 0; i < 4; i++) if (inR(340, 250 + i * 80, 600, 64)) { MN.setup = i; if (i === 3) nav('ok'); else nav(x < 640 ? 'left' : 'right'); return; } }
+  else if (m === 'garage') { for (let i = 0; i < 5; i++) if (inR(340, 440 + i * 50, 600, 44)) { MN.garage = i; if (i === 4) nav('ok'); else nav(x < 640 ? 'left' : 'right'); return; } }
+  else if (m === 'settings') { for (let i = 0; i < SETROWS.length; i++) if (inR(340, 98 + i * 50, 600, 44)) { MN.set = i; if (i === SETROWS.length - 1) nav('ok'); else nav(x < 640 ? 'left' : 'right'); return; } }
+  else if (m === 'pause') { for (let i = 0; i < 4; i++) if (inR(380, 260 + i * 76, 520, 62)) { MN.pause = i; nav('ok'); return; } }
+  else if (m === 'offline') { for (let i = 0; i < 3; i++) if (inR(380, 430 + i * 70, 520, 56)) { MN.off = i; offlineAct(i); return; } }
+  else if (m === 'end') { if (inR(380, 520, 240, 60)) nav('ok'); else if (inR(660, 520, 240, 60)) nav('back'); }
+  else if (m === 'help') nav('ok');
+}
+function listMenu(items, sel, y0, step, h) { items.forEach((t, i) => { const y = y0 + i * step, on = i === sel; ctx.fillStyle = on ? 'rgba(30,110,255,.9)' : 'rgba(255,255,255,.1)'; rr(380, y, 520, h, 14); ctx.fill(); if (on) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; rr(380, y, 520, h, 14); ctx.stroke(); } T(t, 640, y + h / 2 + 1, 26, '#fff'); }); }
+function valRow(label, val, y, on, h) { ctx.fillStyle = on ? 'rgba(30,110,255,.9)' : 'rgba(255,255,255,.1)'; rr(340, y, 600, h, 12); ctx.fill(); if (on) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; rr(340, y, 600, h, 12); ctx.stroke(); } T(label, 920, y + h / 2, h > 50 ? 24 : 20, '#fff', 'right'); T('◀  ' + val + '  ▶', 480, y + h / 2, h > 50 ? 24 : 20, '#fff'); }
+function wrapText(t, x, y, maxW, lh, size, col) { ctx.font = `600 ${size}px ${FONT}`; const words = t.split(' '); let line = '', yy = y; words.forEach((w) => { const test = line ? line + ' ' + w : w; if (ctx.measureText(test).width > maxW && line) { T(line, x, yy, size, col, 'center', 600); line = w; yy += lh; } else line = test; }); T(line, x, yy, size, col, 'center', 600); }
+function drawScreens() {
+  const m = GM.mode;
+  if (m === 'menu') {
+    T('تيربو بول 3D', 640, 100, 92, '#fff', 'center', 800); T('كرة قدم بالسيارات الصاروخية — تعمل بدون إنترنت', 640, 170, 22, '#9cc4ff', 'center', 500); listMenu(MAIN, MN.sel, 240, 66, 56);
+    T(pads().length ? 'يد PS5 متصلة' : 'اضغط أي زر في اليد لتفعيلها (أو المس الشاشة)', 640, 664, 19, pads().length ? '#7be0a0' : '#ffd24a'); T(`أهدافك: ${SAVE.stats.goals}   مباريات: ${SAVE.stats.games}   انتصارات: ${SAVE.stats.wins}`, 640, 696, 16, '#99a', 'center', 500);
+  } else if (m === 'setup') {
+    T('إعداد المباراة', 640, 100, 56, '#fff', 'center', 800); valRow('الحجم', SIZES[GM.cfg.size - 1], 250, MN.setup === 0, 64); valRow('المدة (دقائق)', String(GM.cfg.mins), 330, MN.setup === 1, 64); valRow('صعوبة الخصم', DIFFS[GM.cfg.diff], 410, MN.setup === 2, 64);
+    ctx.fillStyle = MN.setup === 3 ? '#ffc928' : '#b8920f'; rr(340, 490, 600, 64, 14); ctx.fill(); T('ابدأ المباراة', 640, 523, 30, '#101828', 'center', 800); T('أنت الفريق الأزرق ضد البرتقالي. اللاعبون الآخرون يتحكم بهم الحاسوب.', 640, 600, 18, '#cdd', 'center', 500);
+  } else if (m === 'garage') {
+    const B = BODIES[SAVE.car]; T('الجراج', 640, 60, 50, '#fff', 'center', 800); T(B.n, 640, 125, 36, '#fff'); T(B.sub, 640, 160, 18, '#9cc4ff', 'center', 500);
+    const vals = [B.n, PAL_NAMES[SAVE.color], WHEEL_NAMES[SAVE.wheel], FLAME_NAMES[SAVE.flame], '']; GROWS.forEach((t, i) => { const y = 440 + i * 50; if (i < 4) valRow(t, vals[i], y, MN.garage === i, 44); else { ctx.fillStyle = MN.garage === 4 ? 'rgba(30,110,255,.9)' : 'rgba(255,255,255,.1)'; rr(340, y, 600, 44, 12); ctx.fill(); T('رجوع', 640, y + 23, 22, '#fff'); } });
+  } else if (m === 'settings') {
+    T('الإعدادات', 640, 56, 48, '#fff', 'center', 800); const s = SAVE.set, val = [s.ballCam ? 'مفعّلة' : 'متوقفة', s.fov + '°', String(s.camDist), String(s.camH), QNAMES[s.q], FPS_NAMES[s.fps], s.showFps ? 'مفعّل' : 'متوقف', Math.round(s.vol * 100) + '%', s.vib ? 'مفعّل' : 'متوقف', TCH_NAMES[s.touch]];
+    SETROWS.forEach((t, i) => { const y = 98 + i * 50; if (i < SETROWS.length - 1) valRow(t, val[i], y, MN.set === i, 44); else { ctx.fillStyle = MN.set === i ? 'rgba(30,110,255,.9)' : 'rgba(255,255,255,.1)'; rr(340, y, 600, 44, 12); ctx.fill(); T('رجوع', 640, y + 23, 22, '#fff'); } });
+  } else if (m === 'help') {
+    T('دليل التحكم', 640, 60, 50, '#fff', 'center', 800);
+    [['العصا اليسرى', 'التوجيه (على الأرض) / الدوران والميلان (في الهواء)'], ['R2 / L2', 'تسارع / فرامل وعكس'], ['✕ (إكس)', 'قفز — اضغطها ثانية في الهواء مع العصا لقلبة'], ['◯ (دائرة)', 'وقود (بوست)'], ['☐ (مربع)', 'انزلاق (فرملة يد) / دوران جانبي في الهواء'], ['L1 / R1', 'دوران جانبي يسار / يمين في الهواء'], ['△ (مثلث)', 'تبديل كاميرا الكرة'], ['Options', 'إيقاف مؤقت'], ['Create أو R3', 'إعادة الكرة (التدريب الحر)'], ['لوحة المفاتيح', 'WASD توجيه، Space قفز، Shift وقود، Ctrl انزلاق، Q/E دوران، B كاميرا، R كرة'], ['اللمس', 'أزرار على الشاشة: ◀ ▶ توجيه، بنزين، فرامل، قفز، وقود، انزلاق']]
+      .forEach((r, i) => { T(r[0], 1000, 125 + i * 46, 22, '#ffd24a', 'right'); T(r[1], 960, 125 + i * 46, 19, '#fff', 'right', 500); }); T('✕ رجوع', 640, 690, 22, '#ffd24a');
+  } else if (m === 'offline') {
+    T('التحميل بدون إنترنت', 640, 70, 52, '#fff', 'center', 800); T(OFF.status || '…', 640, 140, 22, '#7be0a0', 'center', 600);
+    wrapText('اللعبة لا تحتاج إنترنت أبداً: كل المجسمات والأصوات تُرسم وتُولَّد داخل الملف نفسه. بعد أول فتح تُحفظ على جهازك، ويمكنك أيضاً تنزيل ملف اللعبة وفتحه من ذاكرة الهاتف بدون أي شبكة.', 640, 220, 880, 40, 22, '#cdd');
+    wrapText('تثبيت كتطبيق — أندرويد (كروم): ⋮ ثم «تثبيت التطبيق». آيفون (سفاري): زر المشاركة ثم «إضافة إلى الشاشة الرئيسية».', 640, 340, 880, 40, 20, '#ffd24a');
+    ['تثبيت كتطبيق', 'تنزيل ملف اللعبة (HTML)', 'رجوع'].forEach((t, i) => { const y = 430 + i * 70, on = MN.off === i; ctx.fillStyle = on ? 'rgba(30,110,255,.9)' : 'rgba(255,255,255,.1)'; rr(380, y, 520, 56, 14); ctx.fill(); T(t, 640, y + 30, 24, '#fff'); });
+  } else if (m === 'pause') { ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(0, 0, 1280, 720); T('إيقاف مؤقت', 640, 160, 64, '#fff', 'center', 800); listMenu(PAUSE, MN.pause, 260, 76, 62); }
+  else if (m === 'end') {
+    ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(0, 0, 1280, 720); const win = GM.score[0] > GM.score[1], draw = GM.score[0] === GM.score[1];
+    T(draw ? 'تعادل' : win ? 'فوز!' : 'خسارة', 640, 170, 110, win ? '#7be0a0' : draw ? '#ffd24a' : '#ff7a7a', 'center', 800); T(`${GM.score[0]}  -  ${GM.score[1]}`, 640, 300, 90, '#fff', 'center', 800);
+    [['إعادة المباراة', 380], ['القائمة', 660]].forEach(([t, x], i) => { ctx.fillStyle = i === 0 ? '#ffc928' : 'rgba(255,255,255,.15)'; rr(x, 520, 240, 60, 14); ctx.fill(); T(t, x + 120, 551, 24, i === 0 ? '#101828' : '#fff', 'center', 800); });
+  }
+}
+
+/* =====================  الحلقة الرئيسية  ===================== */
+let last = performance.now(), acc = 0, fpsN = 0, fpsT = 0, fps = 0;
+function engineSound() {
+  if (!ENG || !aok()) return; const c = GM.player, on = GM.mode === 'play' && c, t = AC.currentTime;
+  if (on) { ENG.o.frequency.setTargetAtTime(60 + c.speed * 9, t, .05); ENG.o2.frequency.setTargetAtTime(30 + c.speed * 4.5, t, .05); ENG.f.frequency.setTargetAtTime(300 + c.speed * 30, t, .05); ENG.g.gain.setTargetAtTime(.02 + .04 * Math.abs(c.in.thr) + c.speed * .0015, t, .08); BST.g.gain.setTargetAtTime(c.boosting ? .1 : 0, t, .05); }
+  else { ENG.g.gain.setTargetAtTime(0, t, .1); BST.g.gain.setTargetAtTime(0, t, .1); }
+}
+function menuScene(t) {
+  if (GM.mode === 'garage') { if (!garageCar) syncGarage(); garageCar.q = qaxis([0, 1, 0], t * .6); garageCar.p = [0, garageCar.B.ride, 0]; garageCar.wheelRot = t * 2; garageCar.boosting = false; GM.ball.p = [0, BR, -8]; renderGL([Math.sin(.5) * 4.6, 1.9, Math.cos(.5) * 4.6], [0, .5, 0], 0, [garageCar]); return; }
+  GM.ball.p = [0, 4 + Math.sin(t) * .5, 0]; GM.ball.q = qaxis([0, 1, 0], t * .5); const a = t * .12; renderGL([Math.sin(a) * 52, 22, Math.cos(a) * 52], [0, 3, 0], 0, demoCars);
+}
+function frame(t) {
+  const cap = FPS_CAPS[SAVE.set.fps]; if (cap > 0 && t - last < 1000 / cap - 2) { requestAnimationFrame(frame); return; }
+  const dt = Math.min(.05, (t - last) / 1000); last = t; fpsN++; fpsT += dt; if (fpsT >= .5) { fps = Math.round(fpsN / fpsT); fpsN = 0; fpsT = 0; }
+  if (toastO) { toastO.ttl -= dt; if (toastO.ttl <= 0) toastO = null; }
+  const inGame = GM.mode === 'play' || GM.mode === 'pause' || GM.mode === 'end';
+  if (GM.mode === 'play') { collectInput(); acc += dt; let n = 0; while (acc >= 1 / 120 && n < 8) { stepGame(1 / 120); acc -= 1 / 120; n++; } if (n === 8) acc = 0; updateCam(dt); } else { pollNav(); acc = 0; GM.t += dt; }
+  engineSound();
+  if (inGame && GM.player) renderGL(GM.camP, GM.camL, GM.shake, null); else menuScene(GM.t);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, uic.width, uic.height); ctx.setTransform(dpr * ui.s, 0, 0, dpr * ui.s, ui.ox * dpr, ui.oy * dpr);
+  if (inGame && GM.player) drawHUD(); drawScreens();
+  if (SAVE.set.showFps) T('FPS ' + fps + '  ' + glc.width + '×' + glc.height, 20, 704, 16, fps < 30 ? '#ff7a7a' : '#7be0a0', 'left');
+  if (toastO) { ctx.fillStyle = 'rgba(0,0,0,.72)'; rr(380, 22, 520, 46, 12); ctx.fill(); T(toastO.t, 640, 46, 18, '#ffd24a'); }
+  requestAnimationFrame(frame);
+}
+GM.ball = mkBall(); GM.mode = 'menu';
+(function () { const spots = [[-14, -22], [14, -22], [0, 24]]; demoCars = spots.map((s, i) => { const c = mkCar(i === 2 ? 1 : 0, (i * 2 + 1) % BODIES.length, false, i === 2 ? 1 : 0); c.color = PAL[i === 2 ? 1 : 0]; c.p = [s[0], c.B.ride, s[1]]; c.q = qaxis([0, 1, 0], i === 2 ? PI : 0); return c; }); })();
+if (gl) requestAnimationFrame(frame);
+window.__G = { GM, SAVE, startMatch, stepGame, arenaSdf, nav, mkCar, BODIES, kickoff, collectInput, stepCar, botInput, axesOf, renderGL, updateCam, resetBallFree, PADS, HX, HZ, GW, GH, BR, ballCar, stepBall };
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>

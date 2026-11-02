@@ -1,0 +1,151 @@
+
+/* =====================  الملعب والسيارات (بيانات)  ===================== */
+const HX = 40.96, HZ = 51.2, HY = 20.44, ARC = 5, GW = 8.92, GH = 6.42, GBACK = 8.2, GCZ = HZ + 1, GHZ = 7.2, BR = .9125, GRAV = 6.5;
+const PAL = [[.18, .49, 1], [1, .54, .17], [.88, .23, .23], [.23, .85, .54], [.69, .35, 1], [1, .82, .29], [.87, .9, .96], [.13, .14, .16]];
+const PAL_NAMES = ['أزرق', 'برتقالي', 'أحمر', 'أخضر', 'بنفسجي', 'ذهبي', 'أبيض', 'أسود'];
+const WHEEL_RIM = [[.85, .88, .95], [.95, .75, .2], [.9, .2, .2]], WHEEL_NAMES = ['فضي', 'ذهبي', 'أحمر'];
+const FLAME = [[1, .55, .12], [.25, .6, 1], [.7, .3, 1], [.3, 1, .5]], FLAME_NAMES = ['ناري', 'أزرق', 'بنفسجي', 'أخضر'];
+const lights = [['b', -.3, .04, .6, .16, .05, .02, 'Y'], ['b', .3, .04, .6, .16, .05, .02, 'Y'], ['b', -.3, .04, -.6, .16, .05, .02, 'R'], ['b', .3, .04, -.6, .16, .05, .02, 'R']];
+const wheelsOf = (x, y, z, r, w) => [[x, y, z, r, w, 1], [-x, y, z, r, w, 1], [x, y, -z, r, w, 0], [-x, y, -z, r, w, 0]];
+const BODIES = [
+  { n: 'العاصفة', sub: 'طراز أوكتين', hx: .42, hy: .18, hz: .59, ride: .2, acc: 1, turn: 1,
+    parts: [['b', 0, -.03, 0, .84, .2, 1.18, 'P'], ['b', 0, .07, .38, .78, .1, .42, 'P'], ['b', 0, .2, -.1, .62, .2, .5, 'G'], ['b', 0, .31, -.1, .6, .04, .46, 'P'], ['b', 0, .22, -.58, .8, .03, .16, 'D'], ['b', -.26, .14, -.55, .04, .12, .06, 'K'], ['b', .26, .14, -.55, .04, .12, .06, 'K'], ['b', 0, -.12, .62, .82, .03, .12, 'K']].concat(lights), wheels: wheelsOf(.44, -.1, .38, .19, .16) },
+  { n: 'ثعلب الصحراء', sub: 'طراز فنك', hx: .42, hy: .2, hz: .59, ride: .22, acc: .98, turn: .97,
+    parts: [['b', 0, -.02, 0, .84, .22, 1.16, 'P'], ['b', 0, .1, .4, .8, .12, .34, 'P'], ['b', 0, .25, -.03, .76, .3, .72, 'P'], ['b', 0, .26, .33, .7, .18, .02, 'G'], ['b', 0, .27, -.39, .7, .18, .02, 'G'], ['b', .385, .26, -.03, .02, .16, .5, 'G'], ['b', -.385, .26, -.03, .02, .16, .5, 'G'], ['b', 0, -.12, .62, .82, .04, .1, 'K']].concat(lights), wheels: wheelsOf(.45, -.08, .4, .21, .17) },
+  { n: 'السهم الطويل', sub: 'طراز دومينوس', hx: .415, hy: .16, hz: .64, ride: .18, acc: 1.02, turn: .95,
+    parts: [['b', 0, -.04, 0, .83, .14, 1.27, 'P'], ['b', 0, .06, .45, .8, .08, .36, 'P'], ['b', 0, .12, -.22, .6, .12, .5, 'G'], ['b', 0, .19, -.22, .58, .03, .46, 'P'], ['b', 0, .12, -.64, .8, .03, .12, 'D'], ['b', 0, -.1, .64, .82, .03, .1, 'K']].concat(lights), wheels: wheelsOf(.43, -.09, .42, .18, .16) },
+  { n: 'الشاحنة', sub: 'طراز ميرك', hx: .435, hy: .21, hz: .6, ride: .23, acc: .97, turn: 1,
+    parts: [['b', 0, 0, 0, .87, .24, 1.2, 'P'], ['b', 0, .26, -.05, .82, .3, .8, 'P'], ['b', 0, .3, .36, .76, .16, .02, 'G'], ['b', 0, .3, -.46, .76, .16, .02, 'G'], ['b', .41, .3, -.05, .02, .16, .56, 'G'], ['b', -.41, .3, -.05, .02, .16, .56, 'G'], ['b', 0, -.13, .62, .86, .04, .1, 'K']].concat(lights), wheels: wheelsOf(.47, -.08, .4, .22, .18) },
+  { n: 'القرش', sub: 'طراز بريكاوت', hx: .4, hy: .15, hz: .655, ride: .17, acc: 1, turn: 1.05,
+    parts: [['b', 0, -.05, 0, .8, .1, 1.31, 'P'], ['b', 0, .04, -.15, .5, .1, .4, 'G'], ['b', 0, .1, -.15, .48, .03, .36, 'P'], ['b', 0, .16, -.62, .82, .02, .3, 'D'], ['b', -.25, .08, -.58, .03, .1, .05, 'K'], ['b', .25, .08, -.58, .03, .1, .05, 'K']].concat(lights), wheels: wheelsOf(.42, -.1, .42, .17, .15) },
+  { n: 'البرق الصغير', sub: 'طراز هوتشوت', hx: .42, hy: .17, hz: .57, ride: .19, acc: 1, turn: 1.04,
+    parts: [['b', 0, 0, 0, .84, .2, 1.14, 'P'], ['b', 0, .09, .36, .78, .1, .4, 'P'], ['b', 0, .17, -.12, .6, .18, .46, 'G'], ['b', 0, .27, -.12, .58, .03, .42, 'P'], ['b', 0, .2, -.55, .7, .02, .12, 'D']].concat(lights), wheels: wheelsOf(.44, -.1, .37, .19, .16) }
+];
+
+/* =====================  WebGL  ===================== */
+const glc = document.getElementById('gl'), uic = document.getElementById('ui'), ctx = uic.getContext('2d');
+const gl = glc.getContext('webgl', { antialias: true, alpha: false });
+if (!gl) document.getElementById('nogl').style.display = 'flex';
+const VS = `attribute vec3 aPos; attribute vec3 aNor; attribute vec3 aCol; uniform mat4 uVP; uniform mat4 uM; varying vec3 vN; varying vec3 vC; varying vec3 vW;
+void main(){ vec4 w = uM * vec4(aPos,1.0); vW = w.xyz; gl_Position = uVP * w; vN = (uM * vec4(aNor,0.0)).xyz; vC = aCol; }`;
+const FS = `precision mediump float; varying vec3 vN; varying vec3 vC; varying vec3 vW; uniform vec3 uTint; uniform vec3 uLight; uniform float uEmit; uniform vec3 uCam; uniform vec3 uFog; uniform float uFogD; uniform float uAmb; uniform float uAlpha;
+void main(){ vec3 n = normalize(vN); float l = max(dot(n, normalize(uLight)), 0.0); float h = n.y * 0.5 + 0.5; vec3 base = vC * uTint;
+  vec3 col = base * (uAmb * (0.6 + 0.4 * h) + (1.0 - uAmb) * l); col = mix(col, base, uEmit); float d = length(vW - uCam); float f = clamp(d / uFogD, 0.0, 1.0); col = mix(col, uFog, f * f * 0.6);
+  gl_FragColor = vec4(col, uAlpha); }`;
+let PR = null, UL = {}, AL = {};
+if (gl) {
+  const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); return o; };
+  PR = gl.createProgram(); gl.attachShader(PR, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(PR, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(PR); gl.useProgram(PR);
+  ['uVP', 'uM', 'uTint', 'uLight', 'uEmit', 'uCam', 'uFog', 'uFogD', 'uAmb', 'uAlpha'].forEach((n) => { UL[n] = gl.getUniformLocation(PR, n); });
+  ['aPos', 'aNor', 'aCol'].forEach((n) => { AL[n] = gl.getAttribLocation(PR, n); gl.enableVertexAttribArray(AL[n]); });
+  gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.uniform3f(UL.uLight, .35, 1, .45); gl.uniform3f(UL.uFog, .03, .05, .1); gl.uniform1f(UL.uFogD, 170);
+}
+function mkMesh(data) { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW); return { b, n: data.length / 9 }; }
+const M4 = {
+  persp(fov, asp, n, f) { const t = 1 / Math.tan(fov / 2), m = new Float32Array(16); m[0] = t / asp; m[5] = t; m[10] = (f + n) / (n - f); m[11] = -1; m[14] = 2 * f * n / (n - f); return m; },
+  look(e, c, u) {
+    const f = norm3(sub3(c, e)), s = norm3(cross3(f, u)), v = cross3(s, f);
+    return new Float32Array([s[0], v[0], -f[0], 0, s[1], v[1], -f[1], 0, s[2], v[2], -f[2], 0, -dot3(s, e), -dot3(v, e), dot3(f, e), 1]);
+  },
+  mul(a, b) { const o = new Float32Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } return o; },
+  trs(q, p, s) { const x = qrot(q, [1, 0, 0]), y = qrot(q, [0, 1, 0]), z = qrot(q, [0, 0, 1]); return new Float32Array([x[0] * s[0], x[1] * s[0], x[2] * s[0], 0, y[0] * s[1], y[1] * s[1], y[2] * s[1], 0, z[0] * s[2], z[1] * s[2], z[2] * s[2], 0, p[0], p[1], p[2], 1]); }
+};
+const QI = [0, 0, 0, 1];
+function drawMesh(m, M, tint, emit, alpha) {
+  gl.bindBuffer(gl.ARRAY_BUFFER, m.b); gl.vertexAttribPointer(AL.aPos, 3, gl.FLOAT, false, 36, 0); gl.vertexAttribPointer(AL.aNor, 3, gl.FLOAT, false, 36, 12); gl.vertexAttribPointer(AL.aCol, 3, gl.FLOAT, false, 36, 24);
+  gl.uniformMatrix4fv(UL.uM, false, M); gl.uniform3f(UL.uTint, tint[0], tint[1], tint[2]); gl.uniform1f(UL.uEmit, emit || 0); gl.uniform1f(UL.uAlpha, alpha === undefined ? 1 : alpha); gl.drawArrays(gl.TRIANGLES, 0, m.n);
+}
+
+/* ---- بناء المجسمات ---- */
+function addBox(out, cx, cy, cz, sx, sy, sz, col) {
+  const h = [sx / 2, sy / 2, sz / 2], c = [cx, cy, cz];
+  for (let a = 0; a < 3; a++) for (let s = -1; s <= 1; s += 2) {
+    const u = (a + 1) % 3, v = (a + 2) % 3, n = [0, 0, 0]; n[a] = s;
+    const P = (du, dv) => { const p = [c[0], c[1], c[2]]; p[a] += s * h[a]; p[u] += du * h[u]; p[v] += dv * h[v]; return p; }, q = [P(-1, -1), P(1, -1), P(1, 1), P(-1, 1)];
+    [[0, 1, 2], [0, 2, 3]].forEach((t) => t.forEach((i) => out.push(q[i][0], q[i][1], q[i][2], n[0], n[1], n[2], col[0], col[1], col[2])));
+  }
+}
+function lineQuad(out, x0, z0, x1, z1, w, col) {
+  const dx = x1 - x0, dz = z1 - z0, l = Math.hypot(dx, dz) || 1, nx = -dz / l * w / 2, nz = dx / l * w / 2, y = .03;
+  const q = [[x0 - nx, y, z0 - nz], [x0 + nx, y, z0 + nz], [x1 + nx, y, z1 + nz], [x1 - nx, y, z1 - nz]];
+  [[0, 1, 2], [0, 2, 3]].forEach((t) => t.forEach((i) => out.push(q[i][0], q[i][1], q[i][2], 0, 1, 0, col[0], col[1], col[2])));
+}
+function sphereData(seg, rings) {
+  const out = [], P = (i, j) => { const th = j / rings * PI, ph = i / seg * TAU; return [Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)]; };
+  for (let j = 0; j < rings; j++) for (let i = 0; i < seg; i++) {
+    const ck = ((i >> 1) + (j >> 1)) & 1, col = ck ? [.92, .95, 1] : [.45, .55, .72], a = P(i, j), b = P(i + 1, j), c = P(i + 1, j + 1), d = P(i, j + 1);
+    [[a, b, c], [a, c, d]].forEach((t) => t.forEach((p) => out.push(p[0] * .5, p[1] * .5, p[2] * .5, p[0], p[1], p[2], col[0], col[1], col[2])));
+  }
+  return out;
+}
+function cylData(seg) {
+  const out = [];
+  for (let i = 0; i < seg; i++) {
+    const a0 = i / seg * TAU, a1 = (i + 1) / seg * TAU, c0 = Math.cos(a0) * .5, s0 = Math.sin(a0) * .5, c1 = Math.cos(a1) * .5, s1 = Math.sin(a1) * .5, col = (i & 1) ? [1, 1, 1] : [.78, .78, .8];
+    const tri = (p, q, r, n, cc) => [p, q, r].forEach((v) => out.push(v[0], v[1], v[2], n[0], n[1], n[2], cc[0], cc[1], cc[2]));
+    tri([-.5, c0, s0], [.5, c0, s0], [.5, c1, s1], [0, c0 * 2, s0 * 2], col); tri([-.5, c0, s0], [.5, c1, s1], [-.5, c1, s1], [0, c1 * 2, s1 * 2], col);
+    const rim = (i % 2) ? [.55, .55, .6] : [1, 1, 1]; tri([.5, 0, 0], [.5, c0, s0], [.5, c1, s1], [1, 0, 0], rim); tri([-.5, 0, 0], [-.5, c1, s1], [-.5, c0, s0], [-1, 0, 0], rim);
+  }
+  return out;
+}
+function coneData(seg) {
+  const out = [];
+  for (let i = 0; i < seg; i++) { const a0 = i / seg * TAU, a1 = (i + 1) / seg * TAU; [[Math.cos(a0) * .5, Math.sin(a0) * .5, 0], [Math.cos(a1) * .5, Math.sin(a1) * .5, 0], [0, 0, 1]].forEach((v) => out.push(v[0], v[1], v[2], v[0] * 2, v[1] * 2, .3, 1, 1, 1)); }
+  return out;
+}
+const MESH = {};
+if (gl) { const bx = []; addBox(bx, 0, 0, 0, 1, 1, 1, [1, 1, 1]); MESH.box = mkMesh(bx); MESH.sphere = mkMesh(sphereData(22, 14)); MESH.cyl = mkMesh(cylData(16)); MESH.cone = mkMesh(coneData(12)); }
+function arenaData() {
+  const out = [], B = [HX, HY / 2, HZ], r = ARC, cy = HY / 2;
+  const mapP = (px, py, pz) => { const ix = clamp(px, -(B[0] - r), B[0] - r), iy = clamp(py, -(B[1] - r), B[1] - r), iz = clamp(pz, -(B[2] - r), B[2] - r); let dx = px - ix, dy = py - iy, dz = pz - iz; const l = Math.hypot(dx, dy, dz) || 1; return [ix + dx / l * r, iy + dy / l * r + cy, iz + dz / l * r, -dx / l, -dy / l, -dz / l]; };
+  const grid = (lim, step, ex) => { const s = new Set(); for (let v = -lim; v < lim - 1e-6; v += step) s.add(+v.toFixed(4)); s.add(lim); (ex || []).forEach((e) => s.add(+e.toFixed(4))); return Array.from(s).sort((a, b) => a - b); };
+  const color = (x, y, z, ny) => {
+    if (ny > .7) { const ck = (Math.floor((x + 60) / 5.12) + Math.floor((z + 60) / 5.12)) & 1; return ck ? [.2, .5, .43] : [.14, .4, .35]; }
+    if (ny < -.7) return [.09, .12, .24];
+    const t = clamp(Math.abs(z) / HZ, 0, 1), m = Math.pow(t, 2.5) * .65, zt = z < 0 ? [.12, .36, 1] : [1, .5, .1], base = [.16, .2, .36], band = (Math.floor(y / 2.5) & 1) ? 1 : .78;
+    return [(base[0] * (1 - m) + zt[0] * m) * band, (base[1] * (1 - m) + zt[1] * m) * band, (base[2] * (1 - m) + zt[2] * m) * band];
+  };
+  for (let a = 0; a < 3; a++) for (let s = -1; s <= 1; s += 2) {
+    const u = (a + 1) % 3, v = (a + 2) % 3, ex = (ax) => ax === 0 ? [GW, -GW] : ax === 1 ? [GH - HY / 2] : [HZ - 6.2, -(HZ - 6.2)];
+    const gu = grid(B[u], 2.0, ex(u)), gv = grid(B[v], 2.0, ex(v));
+    for (let i = 0; i < gu.length - 1; i++) for (let j = 0; j < gv.length - 1; j++) {
+      const cu = (gu[i] + gu[i + 1]) / 2, cv = (gv[j] + gv[j + 1]) / 2, ct = [0, 0, 0]; ct[a] = s * B[a]; ct[u] = cu; ct[v] = cv; const wy = ct[1] + cy;
+      if (a === 2 && Math.abs(ct[0]) < GW && wy < GH) continue; if (a === 1 && s === -1 && Math.abs(ct[0]) < GW && Math.abs(ct[2]) > HZ - 6.2) continue;
+      const P = (pu, pv) => { const p = [0, 0, 0]; p[a] = s * B[a]; p[u] = pu; p[v] = pv; return mapP(p[0], p[1], p[2]); }, q = [P(gu[i], gv[j]), P(gu[i + 1], gv[j]), P(gu[i + 1], gv[j + 1]), P(gu[i], gv[j + 1])];
+      const mc = mapP(ct[0], ct[1], ct[2]), cc = color(mc[0], mc[1], mc[2], mc[4]);
+      [[0, 1, 2], [0, 2, 3]].forEach((t) => t.forEach((k) => { const w = q[k]; out.push(w[0], w[1], w[2], w[3], w[4], w[5], cc[0], cc[1], cc[2]); }));
+    }
+  }
+  return out;
+}
+function linesData() {
+  const out = [], W_ = [.9, .95, 1];
+  lineQuad(out, -HX + ARC, 0, HX - ARC, 0, .35, W_);
+  for (let i = 0; i < 64; i++) { const a0 = i / 64 * TAU, a1 = (i + 1) / 64 * TAU; lineQuad(out, Math.cos(a0) * 9.15, Math.sin(a0) * 9.15, Math.cos(a1) * 9.15, Math.sin(a1) * 9.15, .35, W_); }
+  for (let i = 0; i < 16; i++) { const a0 = i / 16 * TAU, a1 = (i + 1) / 16 * TAU; lineQuad(out, Math.cos(a0) * .8, Math.sin(a0) * .8, Math.cos(a1) * .8, Math.sin(a1) * .8, .6, W_); }
+  [-1, 1].forEach((sz) => { const z0 = sz * (HZ - 6.2), x = GW + 6, c = sz < 0 ? [.3, .55, 1] : [1, .65, .3]; lineQuad(out, -x, z0, x, z0, .35, c); lineQuad(out, -x, z0, -x, sz * HZ, .35, c); lineQuad(out, x, z0, x, sz * HZ, .35, c); });
+  return out;
+}
+function goalsData() {
+  const out = [];
+  [-1, 1].forEach((sz) => {
+    const tc = sz < 0 ? [.15, .4, 1] : [1, .55, .15], dk = sz < 0 ? [.08, .16, .36] : [.36, .18, .06], z0 = sz * (HZ + 1), zb = sz * (HZ + GBACK);
+    addBox(out, 0, GH / 2, zb + sz * .1, 2 * GW + .6, GH + .2, .2, dk); addBox(out, -GW - .1, GH / 2, z0, .2, GH, 2 * GHZ, dk); addBox(out, GW + .1, GH / 2, z0, .2, GH, 2 * GHZ, dk);
+    addBox(out, 0, GH + .1, z0, 2 * GW + .6, .2, 2 * GHZ, dk); addBox(out, 0, -.1, z0, 2 * GW + .6, .2, 2 * GHZ, [.12, .24, .24]);
+    addBox(out, -GW, GH / 2, sz * HZ, .55, GH, .55, tc); addBox(out, GW, GH / 2, sz * HZ, .55, GH, .55, tc); addBox(out, 0, GH, sz * HZ, 2 * GW + .55, .55, .55, tc);
+    for (let k = -4; k <= 4; k++) addBox(out, k * 2, GH / 2, zb + sz * -.05, .08, GH, .06, [.7, .8, .9]);
+  });
+  return out;
+}
+if (gl) { MESH.arena = mkMesh(arenaData()); MESH.lines = mkMesh(linesData()); MESH.goals = mkMesh(goalsData()); }
+
+/* ---- حجم الشاشة وجودة الرسم ---- */
+const QUALITY = [.5, .7, .85, 1], QNAMES = ['منخفضة جداً', 'منخفضة', 'متوسطة', 'عالية'];
+let vw = 1280, vh = 720, dpr = 1, ui = { s: 1, ox: 0, oy: 0 };
+function resize() {
+  dpr = Math.min(devicePixelRatio || 1, 2); vw = innerWidth; vh = innerHeight; const q = QUALITY[SAVE.set.q] || 1;
+  glc.width = Math.max(2, Math.round(vw * dpr * q)); glc.height = Math.max(2, Math.round(vh * dpr * q)); uic.width = Math.round(vw * dpr); uic.height = Math.round(vh * dpr);
+  ui.s = Math.min(vw / 1280, vh / 720); ui.ox = (vw - 1280 * ui.s) / 2; ui.oy = (vh - 720 * ui.s) / 2;
+}
+addEventListener('resize', resize); resize();

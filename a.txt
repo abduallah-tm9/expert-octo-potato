@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0a1226">
+<title>تيربو بول 3D</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="تيربو بول 3D">
+<style>
+html,body{margin:0;height:100%;background:#050a18;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block}
+#rot{display:none;position:fixed;inset:0;background:#050a18;color:#fff;z-index:9;align-items:center;justify-content:center;text-align:center;padding:24px;font:700 22px/1.7 "Noto Sans Arabic","SF Arabic","Geeza Pro","Segoe UI",system-ui,sans-serif}
+@media (orientation:portrait){#rot{display:flex}}
+#nogl{display:none;position:fixed;inset:0;background:#050a18;color:#fff;z-index:10;align-items:center;justify-content:center;text-align:center;padding:24px;font:700 22px/1.7 "Noto Sans Arabic","Segoe UI",system-ui,sans-serif}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas><canvas id="ui"></canvas>
+<div id="rot">أدر الجهاز بالعرض لتلعب</div>
+<div id="nogl">متصفحك لا يدعم WebGL المطلوب لعرض اللعبة ثلاثية الأبعاد.<br>جرّب كروم أو سفاري حديثاً.</div>
+<script>
+'use strict';
+/* =====================  رياضيات  ===================== */
+const TAU = Math.PI * 2, PI = Math.PI;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v, lerp = (a, b, t) => a + (b - a) * t, sgn = (v) => v > 0 ? 1 : v < 0 ? -1 : 0;
+const rnd = (a, b) => a + Math.random() * (b - a), rint = (a, b) => Math.floor(rnd(a, b + 1));
+const add3 = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]], sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], mul3 = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], len3 = (a) => Math.hypot(a[0], a[1], a[2]);
+const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const norm3 = (a) => { const l = len3(a); return l > 1e-9 ? [a[0] / l, a[1] / l, a[2] / l] : [0, 0, 0]; };
+const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const qmul = (a, b) => [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0], a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
+const qaxis = (ax, ang) => { const s = Math.sin(ang / 2); return [ax[0] * s, ax[1] * s, ax[2] * s, Math.cos(ang / 2)]; };
+const qnorm = (q) => { const l = Math.hypot(q[0], q[1], q[2], q[3]) || 1; return [q[0] / l, q[1] / l, q[2] / l, q[3] / l]; };
+function qrot(q, v) {
+  const x = q[0], y = q[1], z = q[2], w = q[3], tx = 2 * (y * v[2] - z * v[1]), ty = 2 * (z * v[0] - x * v[2]), tz = 2 * (x * v[1] - y * v[0]);
+  return [v[0] + w * tx + (y * tz - z * ty), v[1] + w * ty + (z * tx - x * tz), v[2] + w * tz + (x * ty - y * tx)];
+}
+const axesOf = (q) => { const f = qrot(q, [0, 0, 1]), u = qrot(q, [0, 1, 0]); return { f, u, r: cross3(f, u) }; };
+
+/* =====================  الحفظ والإعدادات  ===================== */
+const SAVE_KEY = 'turbo-ball-3d-v1';
+let SAVE = { car: 0, color: 0, wheel: 0, flame: 0, set: {}, stats: { goals: 0, wins: 0, games: 0 } };
+const DEFSET = { fov: 72, camDist: 6.2, camH: 2.3, stiff: 7, ballCam: true, q: 3, fps: 2, showFps: false, vol: .7, vib: true, touch: 0, steer: 1 };
+function loadSave() { try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s) SAVE = Object.assign(SAVE, s); } catch (e) {} SAVE.set = Object.assign({}, DEFSET, SAVE.set || {}); SAVE.stats = SAVE.stats || { goals: 0, wins: 0, games: 0 }; }
+function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)); } catch (e) {} }
+loadSave();
+
+/* =====================  الصوت  ===================== */
+let AC = null, MG = null, NB = null, ENG = null, BST = null;
+function ensureAudio() {
+  try {
+    if (!AC) {
+      AC = new (window.AudioContext || window.webkitAudioContext)(); MG = AC.createGain(); MG.gain.value = SAVE.set.vol; MG.connect(AC.destination);
+      NB = AC.createBuffer(1, AC.sampleRate, AC.sampleRate); const d = NB.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      const o = AC.createOscillator(), o2 = AC.createOscillator(), g = AC.createGain(), f = AC.createBiquadFilter(); o.type = 'sawtooth'; o2.type = 'square'; f.type = 'lowpass'; f.frequency.value = 500; g.gain.value = 0;
+      o.connect(f); o2.connect(f); f.connect(g); g.connect(MG); o.start(); o2.start(); ENG = { o, o2, g, f };
+      const s = AC.createBufferSource(), bf = AC.createBiquadFilter(), bg = AC.createGain(); s.buffer = NB; s.loop = true; bf.type = 'bandpass'; bf.frequency.value = 900; bf.Q.value = .7; bg.gain.value = 0; s.connect(bf); bf.connect(bg); bg.connect(MG); s.start(); BST = { g: bg, f: bf };
+    }
+    if (AC.state === 'suspended') AC.resume();
+  } catch (e) {}
+}
+const aok = () => AC && AC.state === 'running';
+function noise(dur, freq, q, vol, type) {
+  if (!aok()) return; const t = AC.currentTime, s = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
+  s.buffer = NB; f.type = type || 'bandpass'; f.frequency.value = freq; f.Q.value = q || 1; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+  s.connect(f); f.connect(g); g.connect(MG); s.start(t, Math.random() * .5); s.stop(t + dur);
+}
+function tone(f, dur, type, vol, f2) {
+  if (!aok()) return; const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain(); o.type = type || 'sine'; o.frequency.setValueAtTime(f, t);
+  if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur); o.connect(g); g.connect(MG); o.start(t); o.stop(t + dur);
+}
+const sfx = {
+  hit(p) { tone(110 + p * 60, .12, 'triangle', .25 * p + .08, 45); noise(.06, 800, 1, .15 * p, 'lowpass'); },
+  tick() { tone(520, .1, 'square', .08); }, go() { tone(880, .35, 'square', .1); },
+  goal() { [392, 523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, .3, 'sawtooth', .09), i * 120)); noise(.8, 400, .5, .3, 'lowpass'); },
+  jump() { tone(220, .1, 'sine', .1, 440); }, flip() { noise(.15, 1500, 1, .12, 'bandpass'); tone(300, .12, 'triangle', .1, 600); },
+  pad() { tone(800, .1, 'sine', .08, 1500); }, bump() { noise(.08, 500, 1, .18, 'lowpass'); tone(90, .1, 'triangle', .15, 50); }, end() { tone(440, .6, 'sawtooth', .1, 220); }
+};
+function rumble(ms, s, w) {
+  if (!SAVE.set.vib) return;
+  try { const p = (navigator.getGamepads ? Array.from(navigator.getGamepads()) : []).find((x) => x && x.connected); if (p && p.vibrationActuator) p.vibrationActuator.playEffect('dual-rumble', { startDelay: 0, duration: ms, strongMagnitude: s, weakMagnitude: w }); } catch (e) {}
+}

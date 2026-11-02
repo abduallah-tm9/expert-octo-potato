@@ -1,0 +1,166 @@
+
+/* =====================  الفيزياء  ===================== */
+const SD = { d: 0, gx: 0, gy: 1, gz: 0 }, T1 = {}, T2 = {}, T3 = {};
+function rbox(px, py, pz, cx, cy, cz, bx, by, bz, r, o) {
+  const dx = px - cx, dy = py - cy, dz = pz - cz, qx = Math.abs(dx) - (bx - r), qy = Math.abs(dy) - (by - r), qz = Math.abs(dz) - (bz - r);
+  const mx = Math.max(qx, 0), my = Math.max(qy, 0), mz = Math.max(qz, 0), ol = Math.hypot(mx, my, mz);
+  o.d = ol + Math.min(Math.max(qx, qy, qz), 0) - r;
+  if (ol > 1e-6) { o.gx = (dx < 0 ? -1 : 1) * mx / ol; o.gy = (dy < 0 ? -1 : 1) * my / ol; o.gz = (dz < 0 ? -1 : 1) * mz / ol; }
+  else if (qx >= qy && qx >= qz) { o.gx = dx < 0 ? -1 : 1; o.gy = 0; o.gz = 0; } else if (qy >= qz) { o.gx = 0; o.gy = dy < 0 ? -1 : 1; o.gz = 0; } else { o.gx = 0; o.gy = 0; o.gz = dz < 0 ? -1 : 1; }
+}
+function arenaSdf(px, py, pz) {
+  rbox(px, py, pz, 0, HY / 2, 0, HX, HY / 2, HZ, ARC, T1); let b = T1;
+  rbox(px, py, pz, 0, GH / 2, GCZ, GW, GH / 2, GHZ, .4, T2); if (T2.d < b.d) b = T2;
+  rbox(px, py, pz, 0, GH / 2, -GCZ, GW, GH / 2, GHZ, .4, T3); if (T3.d < b.d) b = T3;
+  SD.d = b.d; SD.gx = b.gx; SD.gy = b.gy; SD.gz = b.gz; return SD;
+}
+function mkCar(team, bi, human, colorIdx) {
+  const B = BODIES[bi];
+  return { team, bi, B, human, p: [0, B.ride, 0], v: [0, 0, 0], q: [0, 0, 0, 1], w: [0, 0, 0], boost: 33, grounded: true, n: [0, 1, 0], noGround: 0, jumpPrev: false, jumpHold: 0, flipT: 0, flipAxis: [0, 0, 0], canFlip: false, flipWin: 0,
+    wheelRot: 0, steerVis: 0, boosting: false, airT: 0, stuck: 0, speed: 0, color: PAL[colorIdx], rim: WHEEL_RIM[SAVE.wheel] || WHEEL_RIM[0], flame: FLAME[SAVE.flame] || FLAME[0], bt: 0, bstate: 0, stk: 0, rev: 0,
+    in: { thr: 0, steer: 0, fb: 0, roll: 0, jump: false, boost: false, slide: false } };
+}
+function stepCar(c, dt, free) {
+  const I = c.in, B = c.B; let ax = axesOf(c.q), f = ax.f, u = ax.u, r = ax.r;
+  arenaSdf(c.p[0], c.p[1], c.p[2]); const dist = -SD.d, n = [-SD.gx, -SD.gy, -SD.gz], ad = dot3(u, n); c.n = n;
+  c.noGround -= dt; c.grounded = dist < B.ride + .32 && ad > .3 && c.noGround <= 0;
+  const jumpEdge = I.jump && !c.jumpPrev; c.jumpPrev = I.jump;
+  if (c.grounded) {
+    c.canFlip = true; c.flipWin = 1.5; c.flipT = 0; c.airT = 0; c.stuck = 0;
+    const al = cross3(u, n), s = len3(al), ang = Math.atan2(s, ad);
+    if (s > 1e-5 && ang > 1e-4) c.q = qnorm(qmul(qaxis(mul3(al, 1 / s), ang * Math.min(1, 16 * dt)), c.q));
+    ax = axesOf(c.q); f = ax.f; u = ax.u; r = ax.r; c.w = [0, 0, 0];
+    const vn = dot3(c.v, n); if (vn < 0) c.v = sub3(c.v, mul3(n, vn));
+    const g = [0, -GRAV, 0], gt = sub3(g, mul3(n, dot3(g, n))); c.v = add3(c.v, mul3(gt, dt * (n[1] > .8 ? 0 : .6)));
+    const ft = norm3(sub3(f, mul3(n, dot3(f, n)))), rt = norm3(cross3(ft, n)), vf = dot3(c.v, ft), spd = Math.abs(vf);
+    let thr = I.thr; const boosting = I.boost && (c.boost > 0 || free); if (boosting && Math.abs(thr) < .05) thr = 1;
+    let acc;
+    if (thr !== 0) acc = (sgn(thr) === sgn(vf) || spd < .3) ? thr * 16 * Math.max(0, 1 - spd / 14.1) * B.acc : thr * 36; else acc = -sgn(vf) * Math.min(spd / dt * .5, 5.2);
+    c.v = add3(c.v, mul3(ft, acc * dt));
+    if (boosting) { c.v = add3(c.v, mul3(ft, 9.92 * dt)); if (!free) c.boost = Math.max(0, c.boost - 33.3 * dt); }
+    c.boosting = boosting;
+    const vl = dot3(c.v, rt); c.v = sub3(c.v, mul3(rt, vl * Math.min(1, (I.slide ? 1.6 : 9) * dt)));
+    const sp2 = len3(c.v), sd = vf >= -.5 ? 1 : -1, rate = I.steer * 2.7 / (1 + sp2 * .13) * B.turn * (I.slide ? 1.7 : 1) * (sp2 < .4 ? sp2 / .4 : 1);
+    c.q = qnorm(qmul(qaxis(n, -rate * sd * dt), c.q)); c.steerVis = lerp(c.steerVis, I.steer, Math.min(1, 12 * dt));
+    if (jumpEdge) { c.v = add3(c.v, mul3(u, 3.1)); c.jumpHold = .2; c.noGround = .14; c.grounded = false; sfx.jump(); }
+  } else {
+    c.airT += dt; c.flipWin -= dt; c.v[1] -= GRAV * dt;
+    if (c.jumpHold > 0) { if (I.jump) { c.v = add3(c.v, mul3(u, 14 * dt)); c.jumpHold -= dt; } else c.jumpHold = 0; }
+    if (jumpEdge && c.canFlip && c.flipWin > 0) {
+      if (Math.hypot(I.fb, I.steer) > .35) {
+        const hf = norm3([f[0], 0, f[2]]), hr = norm3([r[0], 0, r[2]]), dir = norm3(add3(mul3(hf, I.fb), mul3(hr, I.steer)));
+        c.v = add3(c.v, mul3(dir, 5.2)); c.flipAxis = norm3(add3(mul3(r, -I.fb), mul3(f, I.steer))); c.flipT = .65; sfx.flip();
+      } else { c.v = add3(c.v, mul3(u, 3.0)); sfx.jump(); }
+      c.canFlip = false;
+    }
+    if (c.flipT > 0) { c.flipT -= dt; c.w = mul3(c.flipAxis, 9.67); if (c.flipT <= 0) c.w = mul3(c.w, .15); }
+    else {
+      let pitch = I.fb, yaw = I.steer, roll = I.roll; if (I.slide) { roll += I.steer; yaw = 0; }
+      const tgt = add3(add3(mul3(r, -pitch * 5.2), mul3(u, -yaw * 4.3)), mul3(f, roll * 5.5)); c.w = add3(c.w, mul3(sub3(tgt, c.w), Math.min(1, 7 * dt)));
+    }
+    const boosting = I.boost && (c.boost > 0 || free); c.boosting = boosting;
+    if (boosting) { c.v = add3(c.v, mul3(f, 9.92 * dt)); if (!free) c.boost = Math.max(0, c.boost - 33.3 * dt); }
+    if (dist < B.ride + .5 && ad < -.2) c.stuck += dt; else c.stuck = 0;
+    if (c.stuck > .9) { const al = cross3(u, n), s = len3(al), ang = Math.atan2(s, ad); if (s > 1e-5) c.q = qnorm(qmul(qaxis(mul3(al, 1 / s), ang), c.q)); c.v = add3(c.v, mul3(n, 3)); c.stuck = 0; c.w = [0, 0, 0]; }
+  }
+  const sp = len3(c.v); if (sp > 23) c.v = mul3(c.v, 23 / sp); c.speed = len3(c.v);
+  c.p = add3(c.p, mul3(c.v, dt));
+  const wl = len3(c.w); if (wl > 1e-6) c.q = qnorm(qmul(qaxis(mul3(c.w, 1 / wl), wl * dt), c.q));
+  if (c.grounded) { arenaSdf(c.p[0], c.p[1], c.p[2]); const d2 = -SD.d, n2 = [-SD.gx, -SD.gy, -SD.gz]; if (d2 < B.ride) c.p = add3(c.p, mul3(n2, B.ride - d2)); else if (d2 - B.ride < .45) c.p = sub3(c.p, mul3(n2, Math.min(d2 - B.ride, 5 * dt))); }
+  { let worst = 0, wn = null; const a2 = axesOf(c.q);
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+      const pt = add3(c.p, add3(add3(mul3(a2.r, sx * B.hx), mul3(a2.u, sy * B.hy)), mul3(a2.f, sz * B.hz))); arenaSdf(pt[0], pt[1], pt[2]); if (SD.d > worst) { worst = SD.d; wn = [-SD.gx, -SD.gy, -SD.gz]; }
+    }
+    if (worst > 0 && wn) { c.p = add3(c.p, mul3(wn, worst)); const vn = dot3(c.v, wn); if (vn < 0) { c.v = sub3(c.v, mul3(wn, vn * 1.15)); if (-vn > 5 && c.human) { sfx.bump(); rumble(90, .3, .5); } } c.w = mul3(c.w, .75); } }
+  c.wheelRot += dot3(c.v, axesOf(c.q).f) * dt / .2;
+}
+function stepBall(b, dt) {
+  b.v[1] -= GRAV * dt; b.p = add3(b.p, mul3(b.v, dt)); arenaSdf(b.p[0], b.p[1], b.p[2]); const pen = SD.d + BR;
+  if (pen > 0) {
+    const n = [-SD.gx, -SD.gy, -SD.gz]; b.p = add3(b.p, mul3(n, pen)); const vn = dot3(b.v, n);
+    if (vn < 0) { const e = Math.abs(vn) < 1.2 ? 0 : .6; b.v = sub3(b.v, mul3(n, (1 + e) * vn)); const vt = sub3(b.v, mul3(n, dot3(b.v, n))); b.v = sub3(b.v, mul3(vt, .035)); if (-vn > 5) sfx.hit(Math.min(1, -vn / 30) * .5); }
+  }
+  const sp = len3(b.v); if (sp > 60) b.v = mul3(b.v, 60 / sp);
+  if (sp > .1) { const ax = norm3(cross3([0, 1, 0], b.v)); b.q = qnorm(qmul(qaxis(ax, sp / BR * dt * .9), b.q)); }
+}
+function ballCar(b, c) {
+  const a = axesOf(c.q), B = c.B, d = sub3(b.p, c.p), lx = dot3(d, a.r), ly = dot3(d, a.u), lz = dot3(d, a.f);
+  const qx = clamp(lx, -B.hx, B.hx), qy = clamp(ly, -B.hy, B.hy), qz = clamp(lz, -B.hz, B.hz), ex = lx - qx, ey = ly - qy, ez = lz - qz, dd = Math.hypot(ex, ey, ez);
+  if (dd >= BR) return false;
+  let n, pen;
+  if (dd < 1e-6) {
+    const ox = B.hx - Math.abs(lx), oy = B.hy - Math.abs(ly), oz = B.hz - Math.abs(lz); let ln = [0, 0, 0];
+    if (ox <= oy && ox <= oz) ln[0] = sgn(lx) || 1; else if (oy <= oz) ln[1] = sgn(ly) || 1; else ln[2] = sgn(lz) || 1;
+    n = add3(add3(mul3(a.r, ln[0]), mul3(a.u, ln[1])), mul3(a.f, ln[2])); pen = BR + Math.min(ox, oy, oz);
+  } else { n = norm3(add3(add3(mul3(a.r, ex), mul3(a.u, ey)), mul3(a.f, ez))); pen = BR - dd; }
+  b.p = add3(b.p, mul3(n, pen));
+  const rc = add3(add3(mul3(a.r, qx), mul3(a.u, qy)), mul3(a.f, qz)), vc = add3(c.v, cross3(c.w, rc)), rv = sub3(b.v, vc), vn = dot3(rv, n);
+  if (vn < 0) {
+    const j = -(1.55) * vn / (1 + 1 / 6) * 1.12; b.v = add3(b.v, mul3(n, j)); c.v = sub3(c.v, mul3(n, j / 6)); const vt = sub3(rv, mul3(n, vn)); b.v = sub3(b.v, mul3(vt, .1));
+    const pw = Math.min(1, -vn / 22); if (!GM.hitCool || GM.time0 - GM.hitCool > .08) { sfx.hit(pw); GM.hitCool = GM.time0; } if (c.human) rumble(90, .35 * pw + .05, .6 * pw); b.lt = c.team; GM.shake = Math.max(GM.shake, pw * .25);
+  }
+  return true;
+}
+function carCar(a, c) {
+  const d = sub3(c.p, a.p), dd = len3(d); if (dd > 1.55 || dd < .01) return; const n = mul3(d, 1 / dd), pen = 1.55 - dd;
+  a.p = sub3(a.p, mul3(n, pen / 2)); c.p = add3(c.p, mul3(n, pen / 2)); const rv = dot3(sub3(c.v, a.v), n);
+  if (rv < 0) { const j = -(1.3) * rv / 2; a.v = sub3(a.v, mul3(n, j)); c.v = add3(c.v, mul3(n, j)); if (-rv > 4) sfx.bump(); }
+}
+
+/* ---- لوحات الوقود والجسيمات ---- */
+const PADS = [], PART = [];
+(function () {
+  [[30.72, 40.96], [-30.72, 40.96], [30.72, -40.96], [-30.72, -40.96], [35.84, 0], [-35.84, 0]].forEach((p) => PADS.push({ x: p[0], z: p[1], big: true, cd: 0 }));
+  [-1, 1].forEach((sz) => [[0, 46.1], [12.8, 38.4], [-12.8, 38.4], [0, 30.7], [20.5, 25.6], [-20.5, 25.6], [0, 17.9], [15.4, 12.8], [-15.4, 12.8], [30.7, 20.5], [-30.7, 20.5], [0, 5.1]].forEach((p) => PADS.push({ x: p[0], z: p[1] * sz, big: false, cd: 0 })));
+})();
+function emit(p, v, life, col, size) { if (PART.length < 500) PART.push({ p, v, life, max: life, col, size }); }
+
+/* =====================  المباراة  ===================== */
+const GM = { mode: 'menu', cfg: { size: 1, mins: 5, diff: 1, free: false }, cars: [], ball: null, player: null, score: [0, 0], time: 300, ot: false, phase: 'count', cd: 3, cdI: 4, goalT: 0, goalTeam: 0, shake: 0, camOn: true, t: 0, time0: 0, hitCool: 0, msg: null, prev: 'menu', camP: [0, 6, -14], camL: [0, 1, 0], flash: 0, ended: false };
+function mkBall() { return { p: [0, BR + .02, 0], v: [0, 0, 0], q: [0, 0, 0, 1], lt: -1 }; }
+function kickoff() {
+  const spots = [[0, -46.08], [-20.48, -25.6], [20.48, -25.6], [-2.56, -38.4], [2.56, -38.4]], used = [0, 0]; GM.ball = mkBall();
+  GM.cars.forEach((c) => {
+    const k = used[c.team]++, order = GM.cfg.size === 1 ? [1 + rint(0, 1)] : [1, 2, 0, 3, 4], s = spots[order[k % order.length]], sx = c.team === 0 ? 1 : -1;
+    c.p = [s[0] * sx, c.B.ride, s[1] * sx]; c.v = [0, 0, 0]; c.w = [0, 0, 0]; c.q = c.team === 0 ? [0, 0, 0, 1] : qaxis([0, 1, 0], PI); c.boost = 33; c.grounded = true; c.canFlip = false; c.flipT = 0; c.boosting = false; c.stuck = 0; c.jumpHold = 0; c.rev = 0; c.stk = 0; c.bstate = 0;
+    c.in = { thr: 0, steer: 0, fb: 0, roll: 0, jump: false, boost: false, slide: false };
+  });
+  PADS.forEach((p) => { p.cd = 0; }); PART.length = 0; GM.phase = 'count'; GM.cd = 3; GM.cdI = 4; GM.hitCool = 0;
+}
+function resetBallFree() { const b = GM.ball; b.p = [rnd(-15, 15), rnd(4, 9), rnd(-20, 20)]; b.v = [rnd(-8, 8), rnd(2, 8), rnd(-12, 12)]; b.lt = -1; }
+function startMatch(free) {
+  GM.cfg.free = !!free; const size = free ? 1 : GM.cfg.size, cars = []; GM.score = [0, 0]; GM.time = GM.cfg.mins * 60; GM.ot = false; GM.ended = false; GM.msg = null; GM.flash = 0; GM.time0 = 0;
+  const pc = mkCar(0, SAVE.car, true, free ? SAVE.color : 0); if (!free) pc.color = PAL[0]; cars.push(pc);
+  if (!free) {
+    for (let i = 1; i < size; i++) cars.push(mkCar(0, rint(0, BODIES.length - 1), false, 0));
+    for (let i = 0; i < size; i++) cars.push(mkCar(1, rint(0, BODIES.length - 1), false, 1));
+    cars.forEach((c) => { c.color = c.team === 0 ? PAL[0] : PAL[1]; });
+  }
+  GM.cars = cars; GM.player = pc; GM.mode = 'play'; kickoff(); if (free) { GM.phase = 'play'; resetBallFree(); GM.player.boost = 100; }
+  GM.camP = add3(GM.player.p, [0, 5, -12]); GM.camL = [0, 1, 0]; GM.camOn = SAVE.set.ballCam;
+}
+function botInput(c) {
+  const I = c.in, b = GM.ball, diff = GM.cfg.diff, dtp = 1 / 120, skill = [.6, .85, 1.05][diff]; I.thr = 0; I.steer = 0; I.fb = 0; I.roll = 0; I.jump = false; I.boost = false; I.slide = false;
+  const a = axesOf(c.q), enemyZ = c.team === 0 ? HZ : -HZ, ownZ = -enemyZ, bd = len3(sub3(b.p, c.p)); c.bt -= dtp;
+  if (c.grounded && c.n && (c.n[1] < -.3 || (c.n[1] < .5 && c.p[1] > 5 && b.p[1] < c.p[1] - 4))) { I.jump = true; I.thr = 1; return; }
+  if (c.rev > 0) { c.rev -= dtp; I.thr = -1; I.steer = sgn(Math.sin(GM.t * 2.5)) * .7; return; }
+  if (c.grounded && c.speed < 1.2 && bd < 8) { c.stk += dtp; if (c.stk > .8) { c.rev = .8; c.stk = 0; } } else c.stk = 0;
+  const mates = GM.cars.filter((o) => o.team === c.team), myD = bd; let attacker = true; mates.forEach((o) => { if (o !== c && len3(sub3(o.p, b.p)) < myD - 3) attacker = false; });
+  const gdir = norm3([-b.p[0] * .3, 0, enemyZ - b.p[2]]), behindBall = dot3(sub3([c.p[0], 0, c.p[2]], [b.p[0], 0, b.p[2]]), gdir) < -.5; let tgt;
+  if (attacker) tgt = behindBall ? add3([b.p[0], 0, b.p[2]], mul3(gdir, -.9)) : add3([b.p[0], 0, b.p[2]], add3(mul3(gdir, -11), [(sgn(c.p[0] - b.p[0]) || 1) * 7, 0, 0]));
+  else tgt = [b.p[0] * .45, 0, ownZ * .62 + b.p[2] * .38];
+  tgt[0] = clamp(tgt[0], -HX + 4, HX - 4); tgt[2] = clamp(tgt[2], -HZ + 4, HZ - 4);
+  const lt = sub3(tgt, [c.p[0], 0, c.p[2]]), dist = len3(lt), lx = dot3(lt, a.r), lz = dot3(lt, a.f), ang = Math.atan2(lx, lz);
+  I.steer = clamp(ang * 2.4, -1, 1);
+  if (c.grounded) {
+    I.thr = (lz < -1.5 && dist < 7) ? -1 : (dist < 1.5 && !attacker ? 0 : 1) * (diff === 0 ? .8 : 1);
+    if (Math.abs(ang) > 1.2 && c.speed > 8) I.slide = true;
+    if (Math.abs(ang) < .3 && dist > 14 && c.boost > (diff === 0 ? 55 : 12) && (attacker || dist > 25)) I.boost = true;
+    if (bd < 4.2 && c.bt <= 0 && behindBall && Math.abs(ang) < .5 && Math.random() < .09 * skill) { I.jump = true; c.bt = 1.1; c.bstate = 1; }
+  } else {
+    I.thr = 0; I.steer = 0; I.fb = 0;
+    if (c.bstate === 1) { if (c.airT > .22 && c.canFlip) { I.jump = true; I.fb = 1; c.bstate = 0; } else I.jump = false; }
+    else { const lb = sub3(b.p, c.p), pu = dot3(lb, a.u), pf = dot3(lb, a.f); I.fb = clamp(-pu * .25, -1, 1) * (pf > 0 ? 1 : 0); if (c.boost > 10 && bd < 8 && pf > 0) I.boost = Math.abs(pu) < 2; if (c.canFlip && c.airT > .12 && bd < 4 && Math.random() < .1 * skill) { I.jump = true; I.fb = 1; } }
+    if (a.u[1] < .5) { I.roll = -sgn(a.r[1]) || 1; I.fb = 0; }
+  }
+}

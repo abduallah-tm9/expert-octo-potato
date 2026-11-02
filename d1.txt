@@ -1,0 +1,96 @@
+
+/* =====================  تحديث المباراة والكاميرا  ===================== */
+function updateParticles(dt) { for (let i = PART.length - 1; i >= 0; i--) { const q = PART[i]; q.life -= dt; if (q.life <= 0) { PART.splice(i, 1); continue; } if (q.max > 1) q.v[1] -= 6 * dt; q.p = add3(q.p, mul3(q.v, dt)); } }
+function endMatch() { GM.phase = 'end'; GM.mode = 'end'; sfx.end(); const win = GM.score[0] > GM.score[1]; SAVE.stats.games++; if (win) SAVE.stats.wins++; persist(); }
+function stepGame(rdt) {
+  GM.t += rdt; let dt = rdt; const ph = GM.phase;
+  if (ph === 'goal') { GM.goalT -= rdt; dt = rdt * .35; if (GM.goalT <= 0) { if (GM.ended) { endMatch(); return; } kickoff(); if (GM.cfg.free) { GM.phase = 'play'; resetBallFree(); GM.player.boost = 100; } return; } }
+  if (ph === 'count') { GM.cd -= rdt; const ci = Math.ceil(GM.cd); if (ci !== GM.cdI && GM.cd > 0) { GM.cdI = ci; sfx.tick(); } if (GM.cd <= 0) { GM.phase = 'play'; sfx.go(); } updateParticles(rdt); return; }
+  GM.time0 += dt;
+  if (ph === 'play' && !GM.cfg.free && !GM.ot) { GM.time -= dt; if (GM.time <= 0) { GM.time = 0; if (GM.score[0] === GM.score[1]) { GM.ot = true; GM.msg = { t: 'وقت إضافي: الهدف الذهبي', ttl: 3 }; } else { GM.phase = 'goal'; GM.goalT = 1.2; GM.ended = true; } } }
+  GM.cars.forEach((c) => { if (!c.human) botInput(c); });
+  const free = GM.cfg.free;
+  GM.cars.forEach((c) => stepCar(c, dt, free && c.human));
+  for (let i = 0; i < GM.cars.length; i++) for (let j = i + 1; j < GM.cars.length; j++) carCar(GM.cars[i], GM.cars[j]);
+  const b = GM.ball;
+  for (let s = 0; s < 2; s++) { stepBall(b, dt / 2); GM.cars.forEach((c) => ballCar(b, c)); }
+  PADS.forEach((p) => { if (p.cd > 0) p.cd -= dt; });
+  GM.cars.forEach((c) => PADS.forEach((p) => { if (p.cd <= 0 && c.boost < 100 && Math.abs(c.p[0] - p.x) < (p.big ? 2.6 : 1.9) && Math.abs(c.p[2] - p.z) < (p.big ? 2.6 : 1.9) && c.p[1] < 2.8) { c.boost = Math.min(100, c.boost + (p.big ? 100 : 12)); p.cd = p.big ? 10 : 4; if (c.human) sfx.pad(); } }));
+  GM.cars.forEach((c) => { if (c.boosting) { const a = axesOf(c.q); for (let k = 0; k < 2; k++) emit(add3(c.p, add3(mul3(a.f, -c.B.hz - .1), mul3(a.u, -.02))), add3(mul3(a.f, -rnd(5, 9)), add3(mul3(c.v, .5), [rnd(-.8, .8), rnd(-.8, .8), rnd(-.8, .8)])), rnd(.2, .4), c.flame, rnd(.16, .3)); } });
+  updateParticles(dt); GM.shake *= Math.pow(.02, dt); if (GM.flash > 0) GM.flash -= rdt * 1.5; if (GM.msg) { GM.msg.ttl -= rdt; if (GM.msg.ttl <= 0) GM.msg = null; }
+  if (GM.phase === 'play' && Math.abs(b.p[0]) < GW && b.p[1] < GH && Math.abs(b.p[2]) > HZ + BR * .6) {
+    const team = b.p[2] > 0 ? 0 : 1; GM.score[team]++; GM.goalTeam = team; GM.phase = 'goal'; GM.goalT = 3.2; sfx.goal(); rumble(500, 1, 1); GM.shake = 1; GM.flash = 1;
+    if (!free && GM.player && team === GM.player.team) { SAVE.stats.goals++; persist(); }
+    for (let k = 0; k < 140; k++) emit(add3(b.p, [0, 0, 0]), [rnd(-12, 12), rnd(2, 14), rnd(-12, 12)], rnd(1, 2.2), team === 0 ? [.3, .6, 1] : [1, .6, .2], rnd(.2, .5));
+    if (GM.ot) GM.ended = true; if (free) GM.goalT = 2;
+  }
+}
+function updateCam(dt) {
+  const c = GM.player; if (!c) return; const b = GM.ball, S_ = SAVE.set, a = axesOf(c.q); let want, look;
+  if (GM.camOn) { const tb = norm3(sub3(b.p, c.p)); want = add3(sub3(c.p, mul3(tb, S_.camDist)), [0, S_.camH, 0]); look = lerp3(b.p, add3(c.p, [0, 1, 0]), .12); }
+  else { const hf = norm3([a.f[0], 0, a.f[2]]), vf = len3([c.v[0], 0, c.v[2]]) > 3 ? norm3([c.v[0], 0, c.v[2]]) : hf, dir = norm3(lerp3(hf, vf, .5)); want = add3(sub3(c.p, mul3(dir, S_.camDist)), [0, S_.camH, 0]); look = add3(c.p, add3(mul3(dir, 6), [0, 1.2, 0])); }
+  const k = 1 - Math.exp(-S_.stiff * dt); GM.camP = lerp3(GM.camP, want, k); GM.camL = lerp3(GM.camL, look, 1 - Math.exp(-S_.stiff * 1.8 * dt));
+  arenaSdf(GM.camP[0], GM.camP[1], GM.camP[2]); const d = -SD.d; if (d < 1.2) GM.camP = add3(GM.camP, mul3([-SD.gx, -SD.gy, -SD.gz], 1.2 - d));
+}
+
+/* =====================  الرسم  ===================== */
+let LASTVP = new Float32Array(16);
+function drawCar(c) {
+  const B = c.B, col = c.color, K = { P: col, D: mul3(col, .55), G: [.07, .11, .18], K: [.07, .07, .09], Y: [1, .92, .55], R: [1, .15, .1], S: [.8, .82, .9] };
+  B.parts.forEach((pt) => { const k = pt[7], pos = add3(c.p, qrot(c.q, [pt[1], pt[2], pt[3]])); drawMesh(MESH.box, M4.trs(c.q, pos, [pt[4], pt[5], pt[6]]), K[k], (k === 'Y' || k === 'R') ? 1 : 0); });
+  B.wheels.forEach((w) => {
+    const pos = add3(c.p, qrot(c.q, [w[0], w[1], w[2]])); let q = c.q; if (w[5]) q = qmul(q, qaxis([0, 1, 0], -c.steerVis * .4)); q = qmul(q, qaxis([1, 0, 0], c.wheelRot));
+    drawMesh(MESH.cyl, M4.trs(q, pos, [w[4], w[3] * 2, w[3] * 2]), [.12, .12, .14], 0); drawMesh(MESH.cyl, M4.trs(q, pos, [w[4] + .02, w[3] * 1.2, w[3] * 1.2]), c.rim, 0);
+  });
+  if (c.boosting) {
+    const q = qmul(c.q, qaxis([0, 1, 0], PI)), len = 1.5 + Math.random() * .9, pos = add3(c.p, qrot(c.q, [0, 0, -B.hz]));
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE); gl.depthMask(false); drawMesh(MESH.cone, M4.trs(q, pos, [.5, .5, len]), c.flame, 1, .85); drawMesh(MESH.cone, M4.trs(q, pos, [.28, .28, len * .7]), [1, 1, .9], 1, .9);
+    gl.depthMask(true); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.disable(gl.BLEND);
+  }
+}
+function renderGL(camP, camL, shake, extraCars) {
+  if (!gl) return;
+  gl.viewport(0, 0, glc.width, glc.height); gl.clearColor(.02, .04, .09, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.disable(gl.BLEND); gl.depthMask(true);
+  let eye = camP; if (shake > .01) eye = add3(eye, [rnd(-1, 1) * shake * .5, rnd(-1, 1) * shake * .5, rnd(-1, 1) * shake * .5]);
+  const fw = norm3(sub3(camL, eye)), up = Math.abs(fw[1]) > .995 ? [1, 0, 0] : [0, 1, 0];
+  LASTVP = M4.mul(M4.persp(SAVE.set.fov * PI / 180, glc.width / glc.height, .3, 300), M4.look(eye, camL, up));
+  gl.uniformMatrix4fv(UL.uVP, false, LASTVP); gl.uniform3f(UL.uCam, eye[0], eye[1], eye[2]); gl.uniform1f(UL.uAmb, .62);
+  const I4 = M4.trs(QI, [0, 0, 0], [1, 1, 1]);
+  drawMesh(MESH.arena, I4, [1, 1, 1], 0); drawMesh(MESH.lines, I4, [1, 1, 1], .6); drawMesh(MESH.goals, I4, [1, 1, 1], .3);
+  PADS.forEach((p) => { const s = p.big ? 2.4 : 1.5; drawMesh(MESH.box, M4.trs(QI, [p.x, .05, p.z], [s, .08, s]), p.cd > 0 ? [.3, .26, .1] : [1, .85, .2], p.cd > 0 ? .3 : 1); });
+  const b = GM.ball; if (b) {
+    drawMesh(MESH.sphere, M4.trs(b.q, b.p, [BR * 2, BR * 2, BR * 2]), [1, 1, 1], .3);
+    if (b.lt >= 0) { gl.enable(gl.BLEND); gl.depthMask(false); drawMesh(MESH.sphere, M4.trs(QI, b.p, [BR * 2.3, BR * 2.3, BR * 2.3]), b.lt === 0 ? [.3, .6, 1] : [1, .6, .2], 1, .22); gl.depthMask(true); gl.disable(gl.BLEND); }
+  }
+  GM.cars.forEach(drawCar); if (extraCars) extraCars.forEach(drawCar);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE); gl.depthMask(false);
+  PART.forEach((q) => drawMesh(MESH.box, M4.trs(QI, q.p, [q.size, q.size, q.size]), q.col, 1, clamp(q.life / q.max, 0, 1)));
+  gl.depthMask(true); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.disable(gl.BLEND);
+}
+function proj(p) {
+  const m = LASTVP, x = m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12], y = m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13], w = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15];
+  if (w < .3) return null; const sx = (x / w * .5 + .5) * vw, sy = (1 - (y / w * .5 + .5)) * vh; return [(sx - ui.ox) / ui.s, (sy - ui.oy) / ui.s];
+}
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+const FONT = '"Noto Sans Arabic","SF Arabic","Geeza Pro","Segoe UI",system-ui,sans-serif';
+function T(t, x, y, size, col, align, weight) { ctx.font = `${weight || 700} ${size}px ${FONT}`; ctx.fillStyle = col || '#fff'; ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle'; ctx.direction = 'rtl'; ctx.fillText(t, x, y); }
+const fmtT = (t) => { t = Math.ceil(t); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
+function drawHUD() {
+  const c = GM.player; if (!c) return;
+  ctx.fillStyle = 'rgba(20,60,160,.82)'; rr(470, 12, 150, 56, 14); ctx.fill(); ctx.fillStyle = 'rgba(190,90,20,.82)'; rr(660, 12, 150, 56, 14); ctx.fill(); ctx.fillStyle = 'rgba(0,0,0,.6)'; rr(580, 12, 120, 56, 14); ctx.fill();
+  T(String(GM.score[0]), 545, 42, 40); T(String(GM.score[1]), 735, 42, 40); T(GM.cfg.free ? 'تدريب' : GM.ot ? 'ذهبي' : fmtT(GM.time), 640, 42, GM.cfg.free ? 20 : 30, GM.ot ? '#ffd24a' : '#fff');
+  const bx = 1130, by = S_touch() ? 235 : 590, R = 66, f = c.boost / 100; ctx.lineWidth = 16; ctx.strokeStyle = 'rgba(255,255,255,.15)'; ctx.beginPath(); ctx.arc(bx, by, R, PI * .75, PI * 2.25); ctx.stroke();
+  ctx.strokeStyle = c.boosting ? '#ffd24a' : 'rgb(255,150,40)'; ctx.beginPath(); ctx.arc(bx, by, R, PI * .75, PI * (.75 + 1.5 * f)); ctx.stroke(); T(String(Math.round(c.boost)), bx, by - 2, 44, '#fff', 'center', 800); T('وقود', bx, by + 36, 15, '#cdd', 'center', 500);
+  T(Math.round(c.speed * 6) + ' كم/س', bx, by + 84, 20, c.speed > 22 ? '#ffd24a' : '#fff', 'center', 600);
+  T(GM.camOn ? 'كاميرا الكرة ✓' : 'كاميرا السيارة', 640, 690, 17, GM.camOn ? '#7be0a0' : '#cdd', 'center', 600);
+  const mx = 110, my = 590, sx = 55 / HX, sz = 72 / HZ; ctx.fillStyle = 'rgba(0,0,0,.5)'; rr(mx - 62, my - 82, 124, 164, 10); ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 2; ctx.strokeRect(mx - 55, my - 72, 110, 144);
+  ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.moveTo(mx - 55, my); ctx.lineTo(mx + 55, my); ctx.stroke();
+  GM.cars.forEach((o) => { ctx.fillStyle = o === c ? '#fff' : o.team === 0 ? '#4a90ff' : '#ff9a3a'; ctx.beginPath(); ctx.arc(mx + o.p[0] * sx, my + o.p[2] * sz, o === c ? 5 : 4, 0, TAU); ctx.fill(); });
+  if (GM.ball) { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(mx + GM.ball.p[0] * sx, my + GM.ball.p[2] * sz, 4, 0, TAU); ctx.fill(); ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke(); }
+  GM.cars.forEach((o) => { if (o === c) return; const p = proj(add3(o.p, [0, 1.6, 0])); if (!p) return; ctx.fillStyle = o.team === c.team ? 'rgba(80,160,255,.9)' : 'rgba(255,140,50,.9)'; ctx.beginPath(); ctx.moveTo(p[0] - 9, p[1] - 8); ctx.lineTo(p[0] + 9, p[1] - 8); ctx.lineTo(p[0], p[1] + 6); ctx.closePath(); ctx.fill(); });
+  if (GM.phase === 'count') T(String(Math.max(1, Math.ceil(GM.cd))), 640, 280, 170, '#fff', 'center', 800);
+  if (GM.phase === 'goal') { T('هدف!', 640, 240, 130, GM.goalTeam === 0 ? '#4a90ff' : '#ff9a3a', 'center', 800); T(GM.goalTeam === 0 ? 'الفريق الأزرق' : 'الفريق البرتقالي', 640, 340, 36); }
+  if (GM.msg) T(GM.msg.t, 640, 140, 30, '#ffd24a');
+  if (GM.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${clamp(GM.flash * .5, 0, .5)})`; ctx.fillRect(0, 0, 1280, 720); }
+  if (S_touch()) drawTouch();
+}
